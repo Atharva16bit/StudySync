@@ -1,4 +1,7 @@
-﻿import express from "express";
+﻿import { existsSync } from "node:fs";
+import { extname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+import express from "express";
 import authRouter from "./routes/auth.js";
 import groupsRouter from "./routes/groups.js";
 import groupMembersRouter from "./routes/groupMembers.js";
@@ -21,6 +24,28 @@ app.use("/api", quizzesRouter);
 app.use("/api", resourcesRouter);
 app.use("/api", groupMembersRouter);
 app.use("/api", groupsRouter);
+
+const frontendDist = fileURLToPath(
+  new URL("../../frontend/dist/", import.meta.url),
+);
+const frontendIndex = join(frontendDist, "index.html");
+
+if (existsSync(frontendIndex)) {
+  app.get(/^\/(?!api(?:\/|$)|socket\.io(?:\/|$)).*$/i, [
+    express.static(frontendDist),
+    (req, res, next) => {
+      if (
+        /^\/assets(?:\/|$)/i.test(req.path) ||
+        extname(req.path) ||
+        !req.accepts("html")
+      ) {
+        return next();
+      }
+
+      return res.sendFile(frontendIndex, { cacheControl: false });
+    },
+  ]);
+}
 
 app.use((_req, res) => {
   res.status(404).json({
