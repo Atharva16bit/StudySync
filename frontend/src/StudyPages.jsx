@@ -165,6 +165,16 @@ export function Group({ groupId }) {
   const result = useLoad(path);
   const [section, setSection] = useState("Resources");
   const [inviteUrl, setInviteUrl] = useState("");
+  const [copyStatus, setCopyStatus] = useState("");
+
+  async function copyInviteLink() {
+    try {
+      await navigator.clipboard.writeText(inviteUrl);
+      setCopyStatus("Invite link copied.");
+    } catch {
+      setCopyStatus("Select the link and copy it manually.");
+    }
+  }
 
   async function invite() {
     const { token } = await api(`${path}/invites`, { method: "POST" });
@@ -184,9 +194,32 @@ export function Group({ groupId }) {
             <h1>{group.name}</h1>
             {group.description && <p>{group.description}</p>}
 
-            <Link className="button" to={`${path}/room`}>
-              Enter study room
-            </Link>
+            <div className="row">
+              <Link className="button" to={`${path}/room`}>
+                Enter study room
+              </Link>
+              {group.role === "owner" && !inviteUrl && (
+                <ActionForm action={invite} label="Invite members" />
+              )}
+            </div>
+
+            {group.role === "owner" && inviteUrl && (
+              <div className="invite-panel stack">
+                <label htmlFor="group-invite-url">Invite link</label>
+                <div className="row">
+                  <input
+                    id="group-invite-url"
+                    readOnly
+                    value={inviteUrl}
+                    onFocus={(event) => event.target.select()}
+                  />
+                  <button type="button" className="secondary" onClick={copyInviteLink}>
+                    Copy link
+                  </button>
+                </div>
+                <p className="muted" role="status">{copyStatus}</p>
+              </div>
+            )}
           </header>
 
           {group.role === "owner" && (
@@ -233,20 +266,7 @@ export function Group({ groupId }) {
                 ))}
               </ul>
 
-              {group.role === "owner" && (
-                <ActionForm action={invite} label="Generate invite link" />
-              )}
 
-              {inviteUrl && (
-                <label>
-                  Invite link
-                  <input
-                    readOnly
-                    value={inviteUrl}
-                    onFocus={(event) => event.target.select()}
-                  />
-                </label>
-              )}
             </section>
           )}
         </>
@@ -911,3 +931,4 @@ export function Bookings() {
     </>
   );
 }
+
