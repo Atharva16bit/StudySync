@@ -22,6 +22,21 @@ import {
 } from "./StudyPages.jsx";
 import Room from "./Room.jsx";
 
+function BrandLink() {
+  return (
+    <Link className="brand" to="/">
+      <img
+        className="brand-mark"
+        src="/favicon.svg"
+        alt=""
+        width={38}
+        height={38}
+      />
+      StudySync
+    </Link>
+  );
+}
+
 function Shell({ user, onLogout }) {
   const health = useLoad("/health");
   const [error, setError] = useState("");
@@ -30,6 +45,7 @@ function Shell({ user, onLogout }) {
   async function logout() {
     setBusy(true);
     setError("");
+
     try {
       await api("/auth/logout", { method: "POST" });
       onLogout();
@@ -47,12 +63,7 @@ function Shell({ user, onLogout }) {
       </a>
 
       <aside className="sidebar">
-        <Link className="brand" to="/">
-          <span className="brand-mark" aria-hidden="true">
-            S
-          </span>
-          StudySync
-        </Link>
+        <BrandLink />
 
         <nav aria-label="Workspace">
           <NavLink to="/" end>
@@ -74,6 +85,7 @@ function Shell({ user, onLogout }) {
           ) : (
             <Link to="/login">Sign in</Link>
           )}
+
           {error && (
             <p role="alert" className="error">
               {error}
@@ -110,6 +122,7 @@ function Dashboard({ user }) {
         <p className="eyebrow">YOUR STUDY SPACE</p>
         <h1>{user ? `Welcome, ${user.name}` : "Better learning, together."}</h1>
         <p>Bring your classmates, notes, and practice into one workspace.</p>
+
         <div className="row">
           <Link className="button" to={user ? "/groups" : "/register"}>
             {user ? "Open my groups" : "Create an account"}
@@ -171,6 +184,7 @@ function Auth({ mode, onLogin }) {
     }
 
     setBusy(true);
+
     try {
       const body = {
         email: values.email.trim(),
@@ -191,9 +205,8 @@ function Auth({ mode, onLogin }) {
   return (
     <main className="auth-page">
       <section className="card auth-card stack">
-        <Link className="brand" to="/">
-          StudySync
-        </Link>
+        <BrandLink />
+
         <h1>{register ? "Create your account" : "Welcome back"}</h1>
         <p>
           {register
@@ -312,6 +325,7 @@ function RoomRoute() {
 
 function QuizRoute() {
   const { groupId, quizId } = useParams();
+
   return (
     <Quiz key={`${groupId}/${quizId}`} groupId={groupId} quizId={quizId} />
   );
