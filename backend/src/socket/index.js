@@ -23,10 +23,7 @@ function publicStroke(stroke) {
     id: stroke.strokeId,
     color: stroke.color,
     width: stroke.width,
-    points: stroke.points.map(({ x, y }) => ({
-      x,
-      y,
-    })),
+    points: stroke.points.map(({ x, y }) => ({ x, y })),
   };
 }
 
@@ -55,7 +52,10 @@ function isValidStroke(stroke) {
 }
 
 async function canAccessGroup(groupId, userId) {
-  if (typeof groupId !== "string" || !mongoose.isObjectIdOrHexString(groupId)) {
+  if (
+    typeof groupId !== "string" ||
+    !mongoose.isObjectIdOrHexString(groupId)
+  ) {
     return false;
   }
 
@@ -68,23 +68,32 @@ async function canAccessGroup(groupId, userId) {
   if (group.ownerId.equals(userId)) return true;
 
   return Boolean(
-    await Membership.exists({
-      groupId,
-      userId,
-    }),
+    await Membership.exists({ groupId, userId }),
   );
 }
 
 export function attachStudySockets(httpServer) {
-  const allowedOrigin = process.env.APP_ORIGIN || "http://localhost:5173";
+  const allowedOrigins = new Set(
+    [
+      process.env.APP_ORIGIN,
+      process.env.RENDER_EXTERNAL_URL,
+      ...(process.env.NODE_ENV !== "production"
+        ? [
+            "http://localhost:5173",
+            "http://127.0.0.1:5173",
+          ]
+        : []),
+    ]
+      .filter(Boolean)
+      .map((value) => new URL(value).origin),
+  );
 
   const io = new Server(httpServer, {
     maxHttpBufferSize: 128 * 1024,
 
     allowRequest(req, callback) {
       const origin = req.headers.origin;
-
-      callback(null, !origin || origin === allowedOrigin);
+      callback(null, !origin || allowedOrigins.has(origin));
     },
   });
 
@@ -92,7 +101,6 @@ export function attachStudySockets(httpServer) {
 
   function enqueue(room, task) {
     const previous = roomQueues.get(room) ?? Promise.resolve();
-
     const current = previous.catch(() => {}).then(task);
 
     roomQueues.set(room, current);
@@ -104,7 +112,6 @@ export function attachStudySockets(httpServer) {
     }
 
     current.then(release, release);
-
     return current;
   }
 
@@ -113,12 +120,9 @@ export function attachStudySockets(httpServer) {
 
     for (const socketId of io.sockets.adapter.rooms.get(room) ?? []) {
       const socket = io.sockets.sockets.get(socketId);
-
       const user = socket?.data.user;
 
-      if (user) {
-        members.set(user.id, user);
-      }
+      if (user) members.set(user.id, user);
     }
 
     return [...members.values()];
@@ -130,7 +134,9 @@ export function attachStudySockets(httpServer) {
 
   io.use(async (socket, next) => {
     try {
-      const session = await findSession(socket.request.headers.cookie);
+      const session = await findSession(
+        socket.request.headers.cookie,
+      );
 
       const user = session
         ? await User.findById(session.userId).select("name")
@@ -140,15 +146,10 @@ export function attachStudySockets(httpServer) {
         return next(new Error("Sign in to enter a study room."));
       }
 
-      socket.data.user = {
-        id: user.id,
-        name: user.name,
-      };
-
+      socket.data.user = { id: user.id, name: user.name };
       next();
     } catch (error) {
       console.error("Socket authentication failed", error.name);
-
       next(new Error("Could not verify your session."));
     }
   });
@@ -158,13 +159,14 @@ export function attachStudySockets(httpServer) {
 
     function register(event, handler) {
       socket.on(event, async (payload, acknowledge) => {
-        if (typeof acknowledge !== "function") {
-          return;
-        }
+        if (typeof acknowledge !== "function") return;
 
         const groupId = payload?.groupId;
 
-        if (typeof groupId !== "string" || !/^[a-f0-9]{24}$/.test(groupId)) {
+        if (
+          typeof groupId !== "string" ||
+          !/^[a-f0-9]{24}$/.test(groupId)
+        ) {
           return acknowledge({
             ok: false,
             message: "Invalid group ID.",
@@ -177,9 +179,14 @@ export function attachStudySockets(httpServer) {
           await enqueue(room, async () => {
             if (!socket.connected) return;
 
-            const session = await findSession(socket.request.headers.cookie);
+            const session = await findSession(
+              socket.request.headers.cookie,
+            );
 
-            if (!session || String(session.userId) !== user.id) {
+            if (
+              !session ||
+              String(session.userId) !== user.id
+            ) {
               acknowledge({
                 ok: false,
                 message: "Your session expired. Sign in again.",
@@ -201,7 +208,10 @@ export function attachStudySockets(httpServer) {
 
             if (!socket.connected) return;
 
-            if (event !== "room:join" && !socket.rooms.has(room)) {
+            if (
+              event !== "room:join" &&
+              !socket.rooms.has(room)
+            ) {
               return acknowledge({
                 ok: false,
                 message: "Join the room first.",
@@ -237,19 +247,15 @@ export function attachStudySockets(httpServer) {
 
       const [messages, strokes] = await Promise.all([
         Message.find({ groupId })
-          .sort({
-            createdAt: -1,
-            _id: -1,
-          })
+          .sort({ createdAt: -1, _id: -1 })
           .limit(100)
           .lean(),
 
-        WhiteboardStroke.find({ groupId })
-          .sort({
-            createdAt: -1,
-            _id: -1,
-          })
-          .limit(200)
+        WhiteboardStroke.find({
+          groupId,
+          deletedAt: null,
+        })
+          .sort({ createdAt: -1, _id: -1 })
           .lean(),
       ]);
 
@@ -262,7 +268,10 @@ export function attachStudySockets(httpServer) {
         .lean();
 
       const senderNames = new Map(
-        senders.map((sender) => [String(sender._id), sender.name]),
+        senders.map((sender) => [
+          String(sender._id),
+          sender.name,
+        ]),
       );
 
       if (!socket.connected) return;
@@ -270,25 +279,31 @@ export function attachStudySockets(httpServer) {
       acknowledge({
         ok: true,
 
-        messages: messages
-          .reverse()
-          .map((message) =>
-            publicMessage(
-              message,
-              senderNames.get(String(message.senderId)) ?? "Former member",
-            ),
+        messages: messages.reverse().map((message) =>
+          publicMessage(
+            message,
+            senderNames.get(String(message.senderId)) ??
+              "Former member",
           ),
+        ),
 
         strokes: strokes.reverse().map(publicStroke),
-
         members: roomMembers(room),
       });
 
       broadcastPresence(room);
     });
 
-    register("chat:send", async ({ payload, groupId, room, acknowledge }) => {
-      const text = typeof payload.text === "string" ? payload.text.trim() : "";
+    register("chat:send", async ({
+      payload,
+      groupId,
+      room,
+      acknowledge,
+    }) => {
+      const text =
+        typeof payload.text === "string"
+          ? payload.text.trim()
+          : "";
 
       if (
         !text ||
@@ -309,29 +324,27 @@ export function attachStudySockets(httpServer) {
       };
 
       let message = await Message.findOne(key);
-
       const isNew = !message;
 
       if (isNew) {
-        message = await Message.create({
-          ...key,
-          text,
-        });
+        message = await Message.create({ ...key, text });
       }
 
       const item = publicMessage(message, user.name);
 
-      acknowledge({
-        ok: true,
-        item,
-      });
+      acknowledge({ ok: true, item });
 
       if (isNew) {
         socket.to(room).emit("chat:message", item);
       }
     });
 
-    register("board:draw", async ({ payload, groupId, room, acknowledge }) => {
+    register("board:draw", async ({
+      payload,
+      groupId,
+      room,
+      acknowledge,
+    }) => {
       const stroke = payload.stroke;
 
       if (!isValidStroke(stroke)) {
@@ -347,10 +360,12 @@ export function attachStudySockets(httpServer) {
       };
 
       let saved = await WhiteboardStroke.findOne(key);
-
       const isNew = !saved;
 
-      if (saved && String(saved.authorId) !== user.id) {
+      if (
+        saved &&
+        String(saved.authorId) !== user.id
+      ) {
         return acknowledge({
           ok: false,
           message: "This stroke ID is already in use.",
@@ -363,31 +378,73 @@ export function attachStudySockets(httpServer) {
           authorId: user.id,
           color: stroke.color,
           width: stroke.width,
-          points: stroke.points.map(({ x, y }) => ({
-            x,
-            y,
-          })),
+          points: stroke.points.map(({ x, y }) => ({ x, y })),
         });
       }
 
-      const item = publicStroke(saved);
+      const item = saved.deletedAt
+        ? { id: saved.strokeId, deleted: true }
+        : publicStroke(saved);
 
-      acknowledge({
-        ok: true,
-        item,
-      });
+      acknowledge({ ok: true, item });
 
       if (isNew) {
         socket.to(room).emit("board:stroke", item);
       }
     });
 
-    socket.on("disconnecting", () => {
-      const rooms = [...socket.rooms].filter((room) =>
-        room.startsWith("study:"),
+    register("board:erase", async ({
+      payload,
+      groupId,
+      room,
+      acknowledge,
+    }) => {
+      const ids = payload.ids;
+
+      if (
+        !Array.isArray(ids) ||
+        !ids.length ||
+        ids.length > 200 ||
+        !ids.every(
+          (id) =>
+            typeof id === "string" &&
+            clientIdPattern.test(id),
+        )
+      ) {
+        return acknowledge({
+          ok: false,
+          message: "Choose up to 200 strokes to erase.",
+        });
+      }
+
+      // Keep deleted records to prevent old draw retries restoring them.
+      await WhiteboardStroke.updateMany(
+        {
+          groupId,
+          strokeId: { $in: ids },
+          deletedAt: null,
+        },
+        {
+          $set: { deletedAt: new Date() },
+        },
       );
 
-      queueMicrotask(() => rooms.forEach(broadcastPresence));
+      const item = {
+        ids: [...new Set(ids)],
+      };
+
+      io.to(room).emit("board:erased", item);
+      acknowledge({ ok: true, item });
+    });
+
+    socket.on("disconnecting", () => {
+      const rooms = [...socket.rooms].filter(
+        (room) => room.startsWith("study:"),
+      );
+
+      queueMicrotask(() => {
+        rooms.forEach(broadcastPresence);
+      });
     });
   });
 
