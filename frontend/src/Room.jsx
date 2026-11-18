@@ -8,6 +8,52 @@ function appendById(items, item) {
     : [...items, item];
 }
 
+function makeId() {
+  const bytes = new Uint8Array(16);
+  globalThis.crypto.getRandomValues(bytes);
+
+  return Array.from(bytes, (value) => value.toString(16).padStart(2, "0")).join(
+    "",
+  );
+}
+
+function applyBoardEvent(items, event) {
+  if (event.ids) {
+    return items.filter((item) => !event.ids.includes(item.id));
+  }
+
+  if (event.deleted) {
+    return items.filter((item) => item.id !== event.id);
+  }
+
+  return appendById(items, event);
+}
+
+function touchesStroke(stroke, point, bounds) {
+  const x = point.x * bounds.width;
+  const y = point.y * bounds.height;
+
+  const radius = 14 + (stroke.width * bounds.width) / 2400;
+
+  return stroke.points.some((current, index, points) => {
+    const previous = points[Math.max(0, index - 1)];
+
+    const ax = previous.x * bounds.width;
+    const ay = previous.y * bounds.height;
+
+    const dx = current.x * bounds.width - ax;
+    const dy = current.y * bounds.height - ay;
+
+    const length = dx * dx + dy * dy;
+
+    const t = length
+      ? Math.max(0, Math.min(1, ((x - ax) * dx + (y - ay) * dy) / length))
+      : 0;
+
+    return Math.hypot(x - ax - t * dx, y - ay - t * dy) <= radius;
+  });
+}
+
 function drawStroke(context, stroke, width, height) {
   const [first, ...rest] = stroke.points;
   if (!first) return;
@@ -43,12 +89,16 @@ function drawStroke(context, stroke, width, height) {
   context.stroke();
 }
 
-function Whiteboard({ strokes, enabled, onStroke, onShareSteps }) {
+function Whiteboard({ strokes, enabled, onStroke, onErase, onShareSteps }) {
   const canvasRef = useRef(null);
   const pointerRef = useRef(null);
   const draftRef = useRef(null);
+  const erasedRef = useRef(new Set());
+  const gestureTool = useRef("pen");
+
   const [color, setColor] = useState("#4338ca");
   const [width, setWidth] = useState(4);
+  const [tool, setTool] = useState("pen");
 
   function paint() {
     const canvas = canvasRef.current;
@@ -91,16 +141,37 @@ function Whiteboard({ strokes, enabled, onStroke, onShareSteps }) {
     };
   }
 
+  function eraseAt(event) {
+    const bounds = event.currentTarget.getBoundingClientRect();
+
+    for (const stroke of strokes) {
+      if (
+        erasedRef.current.size < 200 &&
+        touchesStroke(stroke, point(event), bounds)
+      ) {
+        erasedRef.current.add(stroke.id);
+      }
+    }
+  }
+
   function start(event) {
     if (!enabled || event.button !== 0 || pointerRef.current !== null) {
       return;
     }
 
     event.currentTarget.setPointerCapture(event.pointerId);
+
     pointerRef.current = event.pointerId;
+    erasedRef.current = new Set();
+    gestureTool.current = tool;
+
+    if (gestureTool.current === "eraser") {
+      eraseAt(event);
+      return;
+    }
 
     draftRef.current = {
-      id: crypto.randomUUID(),
+      id: makeId(),
       color,
       width,
       points: [point(event)],
@@ -110,9 +181,16 @@ function Whiteboard({ strokes, enabled, onStroke, onShareSteps }) {
   }
 
   function move(event) {
-    if (pointerRef.current !== event.pointerId || !draftRef.current) {
+    if (pointerRef.current !== event.pointerId) {
       return;
     }
+
+    if (gestureTool.current === "eraser") {
+      eraseAt(event);
+      return;
+    }
+
+    if (!draftRef.current) return;
 
     const points = draftRef.current.points;
 
@@ -123,23 +201,61 @@ function Whiteboard({ strokes, enabled, onStroke, onShareSteps }) {
   }
 
   function finish(event, save) {
-    if (pointerRef.current !== event.pointerId) return;
+    if (pointerRef.current !== event.pointerId) {
+      return;
+    }
 
     const stroke = draftRef.current;
+
     draftRef.current = null;
     pointerRef.current = null;
 
     paint();
 
-    if (save && enabled && stroke) {
-      onStroke(stroke);
+    if (save && enabled) {
+      if (gestureTool.current === "eraser" && erasedRef.current.size) {
+        onErase([...erasedRef.current]);
+      } else if (stroke) {
+        onStroke(stroke);
+      }
     }
+
+    erasedRef.current.clear();
   }
 
   return (
     <section className="card stack">
       <div className="row spread">
         <h2>Whiteboard</h2>
+
+        <div className="row" role="group" aria-label="Drawing tools">
+          <button
+            type="button"
+            className="secondary"
+            aria-pressed={tool === "pen"}
+            onClick={() => setTool("pen")}
+          >
+            Pen
+          </button>
+
+          <button
+            type="button"
+            className="secondary"
+            aria-pressed={tool === "eraser"}
+            onClick={() => setTool("eraser")}
+          >
+            Eraser
+          </button>
+
+          <button
+            type="button"
+            className="secondary"
+            disabled={!enabled || !strokes.length}
+            onClick={() => onErase([strokes.at(-1).id])}
+          >
+            Erase last stroke
+          </button>
+        </div>
 
         <div className="row">
           <label className="row">
@@ -166,7 +282,8 @@ function Whiteboard({ strokes, enabled, onStroke, onShareSteps }) {
       </div>
 
       <p className="muted">
-        Draw with a mouse or touch. Your stroke syncs when you lift the pen.
+        Pen adds a stroke. Eraser removes whole strokes you touch when you lift
+        your finger. Erase last stroke also works with the keyboard.
       </p>
 
       <canvas
@@ -174,7 +291,8 @@ function Whiteboard({ strokes, enabled, onStroke, onShareSteps }) {
         ref={canvasRef}
         width={1200}
         height={750}
-        aria-label="Shared drawing canvas"
+        aria-label="Shared drawing canvas; use chat to share board steps in text"
+        aria-disabled={!enabled}
         onPointerDown={start}
         onPointerMove={move}
         onPointerUp={(event) => finish(event, true)}
@@ -195,16 +313,24 @@ export default function Room({ groupId }) {
   const socketRef = useRef(null);
   const composerRef = useRef(null);
   const retryMessage = useRef(null);
+  const pendingBoard = useRef(null);
   const focusComposer = useRef(false);
+
+  const [boardBusy, setBoardBusy] = useState(false);
+  const [boardFailed, setBoardFailed] = useState(false);
+  const [boardStatus, setBoardStatus] = useState("");
 
   const [view, setView] = useState("Board");
   const [revision, setRevision] = useState(0);
   const [delivery, setDelivery] = useState("");
+
   const [connection, setConnection] = useState("Connecting…");
   const [joined, setJoined] = useState(false);
+
   const [messages, setMessages] = useState([]);
   const [strokes, setStrokes] = useState([]);
   const [members, setMembers] = useState([]);
+
   const [message, setMessage] = useState("");
   const [sending, setSending] = useState(false);
   const [error, setError] = useState("");
@@ -217,7 +343,12 @@ export default function Room({ groupId }) {
   }, [view]);
 
   useEffect(() => {
-    const socket = io({ autoConnect: false });
+    const socket = io({
+      autoConnect: false,
+      timeout: 20000,
+      withCredentials: true,
+    });
+
     socketRef.current = socket;
 
     let active = true;
@@ -241,7 +372,7 @@ export default function Room({ groupId }) {
 
       try {
         const snapshot = await socket
-          .timeout(5000)
+          .timeout(20000)
           .emitWithAck("room:join", { groupId });
 
         if (!active || !socket.connected || attempt !== generation) {
@@ -254,7 +385,7 @@ export default function Room({ groupId }) {
 
         setMessages(bufferedMessages.reduce(appendById, snapshot.messages));
 
-        setStrokes(bufferedStrokes.reduce(appendById, snapshot.strokes));
+        setStrokes(bufferedStrokes.reduce(applyBoardEvent, snapshot.strokes));
 
         setMembers(latestMembers ?? snapshot.members);
 
@@ -262,7 +393,9 @@ export default function Room({ groupId }) {
         setJoined(true);
         setConnection("Live");
       } catch (failure) {
-        if (!active || attempt !== generation) return;
+        if (!active || attempt !== generation) {
+          return;
+        }
 
         setJoined(false);
         setConnection("Unable to join");
@@ -270,9 +403,16 @@ export default function Room({ groupId }) {
       }
     });
 
-    socket.on("connect_error", () => {
+    socket.on("connect_error", (failure) => {
       setJoined(false);
-      setConnection("Unable to connect. Retrying…");
+
+      setConnection(
+        socket.active ? "Unable to connect. Retrying…" : "Connection blocked",
+      );
+
+      setError(
+        `${failure.message}. Check your connection. If you signed out, sign in again. If this persists, ask the group owner for help.`,
+      );
     });
 
     socket.on("disconnect", () => {
@@ -294,7 +434,15 @@ export default function Room({ groupId }) {
       if (syncing) {
         bufferedStrokes.push(stroke);
       } else {
-        setStrokes((items) => appendById(items, stroke));
+        setStrokes((items) => applyBoardEvent(items, stroke));
+      }
+    });
+
+    socket.on("board:erased", (item) => {
+      if (syncing) {
+        bufferedStrokes.push(item);
+      } else {
+        setStrokes((items) => applyBoardEvent(items, item));
       }
     });
 
@@ -306,10 +454,40 @@ export default function Room({ groupId }) {
       }
     });
 
+    // Reload shared state after mobile background suspension.
+    function resume() {
+      if (document.visibilityState !== "visible" || !navigator.onLine) {
+        return;
+      }
+
+      socket.disconnect();
+      socket.connect();
+    }
+
+    function offline() {
+      socket.disconnect();
+      setJoined(false);
+
+      setConnection("Offline — waiting for a connection");
+    }
+
+    document.addEventListener("visibilitychange", resume);
+
+    window.addEventListener("online", resume);
+
+    window.addEventListener("offline", offline);
+
     socket.connect();
 
     return () => {
       active = false;
+
+      document.removeEventListener("visibilitychange", resume);
+
+      window.removeEventListener("online", resume);
+
+      window.removeEventListener("offline", offline);
+
       socket.removeAllListeners();
       socket.disconnect();
       socketRef.current = null;
@@ -323,7 +501,7 @@ export default function Room({ groupId }) {
       throw new Error("Reconnect to the room before sending.");
     }
 
-    const response = await socket.timeout(5000).emitWithAck(eventName, {
+    const response = await socket.timeout(20000).emitWithAck(eventName, {
       groupId,
       ...payload,
     });
@@ -347,7 +525,7 @@ export default function Room({ groupId }) {
       retryMessage.current?.text === text
         ? retryMessage.current
         : {
-            id: crypto.randomUUID(),
+            id: makeId(),
             text,
           };
 
@@ -376,22 +554,40 @@ export default function Room({ groupId }) {
     }
   }
 
-  async function saveStroke(stroke) {
-    setError("");
+  async function saveBoard(eventName, payload) {
+    if (boardBusy) return;
+
+    pendingBoard.current = {
+      eventName,
+      payload,
+    };
+
+    setBoardBusy(true);
+    setBoardFailed(false);
+    setBoardStatus("Saving board change…");
 
     try {
-      const item = await send("board:draw", {
-        stroke,
-      });
+      const item = await send(eventName, payload);
 
-      setStrokes((items) => appendById(items, item));
+      setStrokes((items) => applyBoardEvent(items, item));
+
+      pendingBoard.current = null;
+
+      setBoardStatus("Board change saved.");
     } catch (failure) {
-      setError(`Stroke could not be confirmed. ${failure.message}`);
+      setBoardFailed(true);
+
+      setBoardStatus(
+        `Change not confirmed. Reconnect if needed, then retry. ${failure.message}`,
+      );
+    } finally {
+      setBoardBusy(false);
     }
   }
 
   function shareSteps() {
     setView("Chat");
+
     setMessage((draft) => draft || "Board step: ");
 
     if (view === "Chat") {
@@ -406,6 +602,7 @@ export default function Room({ groupId }) {
       <header className="row spread">
         <div className="stack">
           <Link to={`/groups/${groupId}`}>Back to group</Link>
+
           <h1>Live study room</h1>
         </div>
 
@@ -423,6 +620,7 @@ export default function Room({ groupId }) {
           className="secondary"
           onClick={() => {
             setConnection("Connecting…");
+
             setRevision((value) => value + 1);
           }}
         >
@@ -434,6 +632,44 @@ export default function Room({ groupId }) {
         <p className="error" role="alert">
           {error}
         </p>
+      )}
+
+      <p role="status" className="muted">
+        {boardStatus}
+      </p>
+
+      {boardFailed && (
+        <div className="row">
+          <button
+            type="button"
+            disabled={!joined || boardBusy}
+            onClick={() => {
+              const pending = pendingBoard.current;
+
+              if (pending) {
+                saveBoard(pending.eventName, pending.payload);
+              }
+            }}
+          >
+            Retry board change
+          </button>
+
+          <button
+            type="button"
+            className="secondary"
+            onClick={() => {
+              pendingBoard.current = null;
+
+              setBoardFailed(false);
+
+              setBoardStatus(
+                "Unconfirmed change dismissed. Reconnect to load the saved board.",
+              );
+            }}
+          >
+            Dismiss unconfirmed change
+          </button>
+        </div>
       )}
 
       <div className="row room-controls" role="group" aria-label="Room views">
@@ -455,8 +691,9 @@ export default function Room({ groupId }) {
         <div className="room-board">
           <Whiteboard
             strokes={strokes}
-            enabled={joined}
-            onStroke={saveStroke}
+            enabled={joined && !boardBusy && !boardFailed}
+            onStroke={(stroke) => saveBoard("board:draw", { stroke })}
+            onErase={(ids) => saveBoard("board:erase", { ids })}
             onShareSteps={shareSteps}
           />
         </div>
