@@ -15,32 +15,39 @@
 * {
   box-sizing: border-box;
 }
+
 body {
   margin: 0;
   min-width: 320px;
 }
+
 h1,
 h2,
 p {
   margin: 0;
 }
+
 h1 {
-  font-size: clamp(1.75rem, 4vw, 2.65rem);
-  line-height: 1.12;
+  font-size: 1.75rem;
+  line-height: 2.25rem;
   letter-spacing: -0.04em;
 }
+
 h2 {
-  font-size: 1.15rem;
+  font-size: 1.25rem;
   line-height: 1.3;
 }
+
 p {
   line-height: 1.6;
   overflow-wrap: anywhere;
 }
+
 a {
   color: var(--primary-dark);
   text-underline-offset: 3px;
 }
+
 button,
 input,
 select,
@@ -62,7 +69,7 @@ button,
   min-height: 44px;
   padding: 0.65rem 1rem;
   border: 1px solid transparent;
-  border-radius: 10px;
+  border-radius: 8px;
   background: var(--primary);
   color: #fff;
   font-weight: 650;
@@ -74,6 +81,7 @@ button:hover:not(:disabled),
 .button:hover {
   background: var(--primary-dark);
 }
+
 button:disabled {
   opacity: 0.55;
   cursor: not-allowed;
@@ -84,6 +92,7 @@ button:disabled {
   color: var(--primary-dark);
   border-color: var(--border);
 }
+
 .secondary:hover:not(:disabled),
 .secondary[aria-pressed="true"] {
   background: var(--soft);
@@ -96,6 +105,7 @@ button:disabled {
   color: var(--primary-dark);
   text-decoration: underline;
 }
+
 .text-button:hover:not(:disabled) {
   background: transparent;
 }
@@ -121,25 +131,30 @@ textarea {
 textarea {
   resize: vertical;
 }
+
 input[type="radio"] {
   width: auto;
 }
+
 input[type="color"] {
   width: 44px;
   height: 36px;
   padding: 0.2rem;
 }
+
 fieldset {
   min-width: 0;
   margin: 0;
   padding: 1rem;
   border: 1px solid var(--border);
-  border-radius: 10px;
+  border-radius: 8px;
 }
+
 legend {
   padding-inline: 0.3rem;
   font-weight: 700;
 }
+
 summary {
   cursor: pointer;
   color: var(--primary-dark);
@@ -151,29 +166,35 @@ summary {
   gap: 1rem;
   align-content: start;
 }
+
 .row {
   display: flex;
   gap: 0.75rem;
   align-items: center;
   flex-wrap: wrap;
 }
+
 .spread {
   justify-content: space-between;
 }
+
 .grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 1rem;
 }
+
 .choice {
   display: flex;
   align-items: center;
   gap: 0.65rem;
   font-weight: 400;
 }
+
 .muted {
   color: var(--muted);
 }
+
 .details-content {
   margin-top: 1rem;
 }
@@ -222,21 +243,25 @@ summary {
   display: grid;
   gap: 0.35rem;
 }
+
 .sidebar nav a {
   padding: 0.7rem 0.8rem;
   border-radius: 9px;
   text-decoration: none;
 }
+
 .sidebar nav a:hover,
 .sidebar nav a.active {
   background: var(--soft);
 }
+
 .account {
   display: grid;
   gap: 0.75rem;
   margin-top: auto;
   overflow-wrap: anywhere;
 }
+
 .workspace {
   min-width: 0;
 }
@@ -271,6 +296,7 @@ summary {
 .hero {
   background: var(--soft);
 }
+
 .eyebrow {
   color: var(--primary-dark);
   font-weight: 750;
@@ -293,20 +319,24 @@ summary {
 .error,
 .flashcard {
   padding: 1rem;
-  border-radius: 10px;
+  border-radius: 8px;
 }
+
 .empty {
   border: 1px dashed #abb6ca;
   color: var(--muted);
 }
+
 .error {
   background: #fff1f4;
   color: var(--danger);
 }
+
 .flashcard {
   min-height: 125px;
   background: var(--soft);
 }
+
 .tabs {
   display: flex;
   gap: 0.5rem;
@@ -320,15 +350,18 @@ summary {
   padding: 0;
   list-style: none;
 }
+
 .list li {
   padding: 0.65rem;
   background: #f5f6fb;
   border-radius: 8px;
   overflow-wrap: anywhere;
 }
+
 .list li > * + * {
   margin-left: 0.5rem;
 }
+
 .ranked {
   list-style: decimal;
   padding-left: 1.4rem;
@@ -340,10 +373,12 @@ summary {
   min-height: 100vh;
   padding: 1rem;
 }
+
 .auth-card {
   width: min(100%, 460px);
   padding: clamp(1.25rem, 5vw, 2.25rem);
 }
+
 .auth-card form > button[type="submit"],
 .auth-card form > button:last-child {
   width: 100%;
@@ -362,7 +397,7 @@ summary {
   height: auto;
   touch-action: none;
   border: 1px solid var(--border);
-  border-radius: 10px;
+  border-radius: 8px;
   background: #fff;
 }
 
@@ -373,6 +408,7 @@ summary {
   margin: 0;
   list-style: none;
 }
+
 .messages li {
   background: var(--soft);
   border-radius: 8px;
@@ -387,6 +423,7 @@ summary {
   background: white;
   z-index: 10;
 }
+
 .skip:focus {
   top: 1rem;
 }
@@ -402,6 +439,7 @@ summary {
   .grid {
     grid-template-columns: 1fr;
   }
+
   .sidebar {
     position: static;
     height: auto;
@@ -409,30 +447,33 @@ summary {
     border-right: 0;
     border-bottom: 1px solid var(--border);
   }
+
   .sidebar nav {
     display: flex;
     flex-wrap: wrap;
   }
+
   .account {
     margin-top: 0;
   }
 }
 
 /* StudySync workspace theme */
+
 :root {
-  color: #20273d;
-  background: #f5f3ee;
-  --surface: #fffefa;
-  --border: #e2dfd6;
-  --muted: #566079;
-  --primary: #4f43cf;
+  color: #182033;
+  background: #f7f8fc;
+  --surface: #ffffff;
+  --border: #dde2ec;
+  --muted: #526078;
+  --primary: #4338ca;
   --primary-dark: #382b9f;
-  --soft: #edeaff;
-  --radius: 18px;
+  --soft: #eeedff;
+  --radius: 12px;
 }
 
 .shell {
-  background: #f5f3ee;
+  background: #f7f8fc;
 }
 
 .shell .sidebar {
@@ -469,7 +510,7 @@ summary {
 }
 
 .shell .topbar {
-  background: #fffefa;
+  background: #ffffff;
   color: var(--muted);
   font-weight: 600;
 }
@@ -488,7 +529,7 @@ summary {
 
 .content .card,
 .auth-card {
-  box-shadow: 0 3px 14px #20273d08;
+  box-shadow: 0 3px 14px #18203308;
 }
 
 .content .tabs {
@@ -519,5 +560,70 @@ summary {
   .content .hero .row > form button,
   .invite-panel button {
     width: 100%;
+  }
+}
+
+.content {
+  padding: clamp(1rem, 3vw, 2rem);
+}
+
+.group-header {
+  overflow-wrap: anywhere;
+}
+
+.list li > .resource-meta {
+  margin-left: 0;
+  font-size: 0.8125rem;
+  line-height: 1.25rem;
+}
+
+.room-layout {
+  grid-template-columns: minmax(0, 1fr) minmax(16rem, 20rem);
+}
+
+.room-view-board {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.room-board {
+  min-width: 0;
+}
+
+.room-chat .messages {
+  overflow-wrap: anywhere;
+  max-height: min(34dvh, 20rem);
+}
+
+.board {
+  background-color: #fff;
+  background-image: radial-gradient(#dce0ea 1px, transparent 1px);
+  background-size: 20px 20px;
+}
+
+.room-live {
+  color: #166534;
+  background: #dcfce7;
+}
+
+.room-waiting {
+  color: #92400e;
+  background: #fef3c7;
+}
+
+@media (max-width: 900px) {
+  .room-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .room-view-chat .room-board,
+  .room-view-people .room-board {
+    display: none;
+  }
+}
+
+@media (max-width: 700px) {
+  h1 {
+    font-size: 1.5rem;
+    line-height: 2rem;
   }
 }

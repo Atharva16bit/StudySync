@@ -11,7 +11,9 @@ const router = Router();
 const inviteLifetimeMs = 7 * 24 * 60 * 60 * 1000;
 
 function fail(res, status, code, message) {
-  return res.status(status).json({ error: { code, message } });
+  return res.status(status).json({
+    error: { code, message },
+  });
 }
 
 function groupNotFound(res) {
@@ -41,9 +43,12 @@ function hashToken(token) {
 
 function parseGroupDetails(body) {
   const name = typeof body?.name === "string" ? body.name.trim() : "";
+
   const rawDescription = body?.description ?? "";
 
-  if (typeof rawDescription !== "string") return null;
+  if (typeof rawDescription !== "string") {
+    return null;
+  }
 
   const description = rawDescription.trim();
 
@@ -84,7 +89,10 @@ router.param("groupId", async (req, res, next, groupId) => {
     return groupNotFound(res);
   }
 
-  const group = await Group.findOne({ _id: groupId, deletedAt: null });
+  const group = await Group.findOne({
+    _id: groupId,
+    deletedAt: null,
+  });
 
   if (!group) return groupNotFound(res);
 
@@ -96,16 +104,21 @@ router.param("groupId", async (req, res, next, groupId) => {
       userId: req.user._id,
     });
 
-    if (!membership) return groupNotFound(res);
+    if (!membership) {
+      return groupNotFound(res);
+    }
   }
 
   req.studyGroup = group;
   req.groupRole = isOwner ? "owner" : "member";
+
   next();
 });
 
 router.get("/groups", async (req, res) => {
-  const memberships = await Membership.find({ userId: req.user._id })
+  const memberships = await Membership.find({
+    userId: req.user._id,
+  })
     .select("groupId")
     .lean();
 
@@ -113,29 +126,45 @@ router.get("/groups", async (req, res) => {
     deletedAt: null,
     $or: [
       { ownerId: req.user._id },
-      { _id: { $in: memberships.map((membership) => membership.groupId) } },
+      {
+        _id: {
+          $in: memberships.map((membership) => membership.groupId),
+        },
+      },
     ],
-  }).sort({ createdAt: -1, _id: -1 });
+  }).sort({
+    createdAt: -1,
+    _id: -1,
+  });
 
-  return res.json({ groups: groups.map(groupSummary) });
+  return res.json({
+    groups: groups.map(groupSummary),
+  });
 });
 
 router.post("/groups", async (req, res) => {
   const details = parseGroupDetails(req.body);
 
-  if (!details) return invalidGroupDetails(res);
+  if (!details) {
+    return invalidGroupDetails(res);
+  }
 
   const group = await Group.create({
     ...details,
     ownerId: req.user._id,
   });
 
-  return res.status(201).json({ group: groupSummary(group) });
+  return res.status(201).json({
+    group: groupSummary(group),
+  });
 });
 
 router.get("/groups/:groupId", async (req, res) => {
   const group = req.studyGroup;
-  const memberships = await Membership.find({ groupId: group._id })
+
+  const memberships = await Membership.find({
+    groupId: group._id,
+  })
     .select("userId")
     .lean();
 
@@ -155,6 +184,7 @@ router.get("/groups/:groupId", async (req, res) => {
     group: {
       ...groupSummary(group),
       role: req.groupRole,
+
       members: users.map((user) => ({
         id: String(user._id),
         name: user.name,
@@ -167,7 +197,9 @@ router.get("/groups/:groupId", async (req, res) => {
 router.patch("/groups/:groupId", requireOwner, async (req, res) => {
   const details = parseGroupDetails(req.body);
 
-  if (!details) return invalidGroupDetails(res);
+  if (!details) {
+    return invalidGroupDetails(res);
+  }
 
   const group = await Group.findOneAndUpdate(
     {
@@ -176,12 +208,19 @@ router.patch("/groups/:groupId", requireOwner, async (req, res) => {
       deletedAt: null,
     },
     { $set: details },
-    { new: true, runValidators: true },
+    {
+      new: true,
+      runValidators: true,
+    },
   );
 
-  if (!group) return groupNotFound(res);
+  if (!group) {
+    return groupNotFound(res);
+  }
 
-  return res.json({ group: groupSummary(group) });
+  return res.json({
+    group: groupSummary(group),
+  });
 });
 
 router.delete("/groups/:groupId", requireOwner, async (req, res) => {
@@ -191,7 +230,11 @@ router.delete("/groups/:groupId", requireOwner, async (req, res) => {
       ownerId: req.user._id,
       deletedAt: null,
     },
-    { $set: { deletedAt: new Date() } },
+    {
+      $set: {
+        deletedAt: new Date(),
+      },
+    },
   );
 
   return res.status(204).end();
@@ -208,13 +251,16 @@ router.post("/groups/:groupId/invites", requireOwner, async (req, res) => {
   });
 
   res.set("Cache-Control", "no-store");
+
   return res.status(201).json({ token });
 });
 
-router.post("/invites/:token/accept", async (req, res) => {
+async function loadInvitedGroup(req, res, next) {
   const { token } = req.params;
 
-  if (!/^[a-f0-9]{64}$/.test(token)) return inviteNotFound(res);
+  if (!/^[a-f0-9]{64}$/.test(token)) {
+    return inviteNotFound(res);
+  }
 
   const invite = await Invite.findOne({
     tokenHash: hashToken(token),
@@ -222,14 +268,35 @@ router.post("/invites/:token/accept", async (req, res) => {
     revokedAt: null,
   }).lean();
 
-  if (!invite) return inviteNotFound(res);
+  if (!invite) {
+    return inviteNotFound(res);
+  }
 
   const group = await Group.findOne({
     _id: invite.groupId,
     deletedAt: null,
   });
 
-  if (!group) return inviteNotFound(res);
+  if (!group) {
+    return inviteNotFound(res);
+  }
+
+  req.invitedGroup = group;
+
+  res.set("Cache-Control", "no-store");
+  next();
+}
+
+router.get("/invites/:token", loadInvitedGroup, (req, res) => {
+  res.json({
+    group: {
+      name: req.invitedGroup.name,
+    },
+  });
+});
+
+router.post("/invites/:token/accept", loadInvitedGroup, async (req, res) => {
+  const group = req.invitedGroup;
 
   if (!group.ownerId.equals(req.user._id)) {
     const membership = {
@@ -240,8 +307,12 @@ router.post("/invites/:token/accept", async (req, res) => {
     try {
       await Membership.updateOne(
         membership,
-        { $setOnInsert: membership },
-        { upsert: true },
+        {
+          $setOnInsert: membership,
+        },
+        {
+          upsert: true,
+        },
       );
     } catch (error) {
       if (error.code !== 11000 || !(await Membership.exists(membership))) {
@@ -250,7 +321,9 @@ router.post("/invites/:token/accept", async (req, res) => {
     }
   }
 
-  return res.json({ group: groupSummary(group) });
+  return res.json({
+    group: groupSummary(group),
+  });
 });
 
 export default router;

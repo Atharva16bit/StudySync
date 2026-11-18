@@ -7,19 +7,25 @@ export async function api(path, { method = "GET", body, signal } = {}) {
   const response = await fetch(`/api${path}`, {
     method,
     credentials: "same-origin",
+
     headers: {
       Accept: "application/json",
       ...(hasBody && !multipart ? { "Content-Type": "application/json" } : {}),
     },
+
     body: hasBody ? (multipart ? body : JSON.stringify(body)) : undefined,
+
     signal,
   });
 
-  if (response.status === 204) return null;
+  if (response.status === 204) {
+    return null;
+  }
 
   const isJson = response.headers
     .get("content-type")
     ?.includes("application/json");
+
   const data = isJson ? await response.json() : null;
 
   if (!response.ok || !isJson) {
@@ -27,6 +33,7 @@ export async function api(path, { method = "GET", body, signal } = {}) {
       data?.error?.message ??
         `The StudySync API could not complete this request (${response.status}).`,
     );
+
     error.status = response.status;
     throw error;
   }
@@ -36,6 +43,7 @@ export async function api(path, { method = "GET", body, signal } = {}) {
 
 export function useLoad(path) {
   const [revision, setRevision] = useState(0);
+
   const [result, setResult] = useState({
     data: null,
     error: "",
@@ -43,29 +51,48 @@ export function useLoad(path) {
   });
 
   const reload = useCallback(() => {
-    setResult({ data: null, error: "", loading: true });
+    setResult({
+      data: null,
+      error: "",
+      loading: true,
+    });
+
     setRevision((value) => value + 1);
   }, []);
 
   useEffect(() => {
     const controller = new AbortController();
 
-    api(path, { signal: controller.signal })
+    api(path, {
+      signal: controller.signal,
+    })
       .then((data) => {
         if (!controller.signal.aborted) {
-          setResult({ data, error: "", loading: false });
+          setResult({
+            data,
+            error: "",
+            loading: false,
+          });
         }
       })
       .catch((error) => {
         if (!controller.signal.aborted) {
-          setResult({ data: null, error: error.message, loading: false });
+          setResult({
+            data: null,
+            error: error.message,
+            status: error.status,
+            loading: false,
+          });
         }
       });
 
     return () => controller.abort();
   }, [path, revision]);
 
-  return { ...result, reload };
+  return {
+    ...result,
+    reload,
+  };
 }
 
 export function formatDate(value) {

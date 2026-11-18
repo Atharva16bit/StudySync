@@ -20,6 +20,7 @@ function drawStroke(context, stroke, width, height) {
 
   if (rest.length === 0) {
     context.beginPath();
+
     context.arc(
       first.x * width,
       first.y * height,
@@ -27,6 +28,7 @@ function drawStroke(context, stroke, width, height) {
       0,
       Math.PI * 2,
     );
+
     context.fill();
     return;
   }
@@ -41,15 +43,17 @@ function drawStroke(context, stroke, width, height) {
   context.stroke();
 }
 
-function Whiteboard({ strokes, enabled, onStroke }) {
+function Whiteboard({ strokes, enabled, onStroke, onShareSteps }) {
   const canvasRef = useRef(null);
   const pointerRef = useRef(null);
   const draftRef = useRef(null);
-  const [color, setColor] = useState("#4f46e5");
+  const [color, setColor] = useState("#4338ca");
+  const [width, setWidth] = useState(4);
 
   function paint() {
     const canvas = canvasRef.current;
     const context = canvas.getContext("2d");
+
     context.clearRect(0, 0, canvas.width, canvas.height);
 
     for (const stroke of strokes) {
@@ -78,6 +82,7 @@ function Whiteboard({ strokes, enabled, onStroke }) {
 
   function point(event) {
     const bounds = event.currentTarget.getBoundingClientRect();
+
     const clamp = (value) => Math.min(1, Math.max(0, value));
 
     return {
@@ -87,23 +92,30 @@ function Whiteboard({ strokes, enabled, onStroke }) {
   }
 
   function start(event) {
-    if (!enabled || event.button !== 0 || pointerRef.current !== null) return;
+    if (!enabled || event.button !== 0 || pointerRef.current !== null) {
+      return;
+    }
 
     event.currentTarget.setPointerCapture(event.pointerId);
     pointerRef.current = event.pointerId;
+
     draftRef.current = {
       id: crypto.randomUUID(),
       color,
-      width: 4,
+      width,
       points: [point(event)],
     };
+
     paint();
   }
 
   function move(event) {
-    if (pointerRef.current !== event.pointerId || !draftRef.current) return;
+    if (pointerRef.current !== event.pointerId || !draftRef.current) {
+      return;
+    }
 
     const points = draftRef.current.points;
+
     if (points.length < 1000) {
       points.push(point(event));
       paint();
@@ -116,27 +128,47 @@ function Whiteboard({ strokes, enabled, onStroke }) {
     const stroke = draftRef.current;
     draftRef.current = null;
     pointerRef.current = null;
+
     paint();
 
-    if (save && enabled && stroke) onStroke(stroke);
+    if (save && enabled && stroke) {
+      onStroke(stroke);
+    }
   }
 
   return (
     <section className="card stack">
       <div className="row spread">
         <h2>Whiteboard</h2>
-        <label className="row">
-          Pen colour
-          <input
-            type="color"
-            value={color}
-            onChange={(event) => setColor(event.target.value)}
-          />
-        </label>
+
+        <div className="row">
+          <label className="row">
+            Pen colour
+            <input
+              type="color"
+              value={color}
+              onChange={(event) => setColor(event.target.value)}
+            />
+          </label>
+
+          <label>
+            Pen width
+            <select
+              value={width}
+              onChange={(event) => setWidth(Number(event.target.value))}
+            >
+              <option value={2}>Fine</option>
+              <option value={4}>Medium</option>
+              <option value={8}>Thick</option>
+            </select>
+          </label>
+        </div>
       </div>
+
       <p className="muted">
         Draw with a mouse or touch. Your stroke syncs when you lift the pen.
       </p>
+
       <canvas
         className="board"
         ref={canvasRef}
@@ -151,12 +183,23 @@ function Whiteboard({ strokes, enabled, onStroke }) {
       >
         Your browser does not support the drawing canvas.
       </canvas>
+
+      <button type="button" className="secondary" onClick={onShareSteps}>
+        Share board steps in chat
+      </button>
     </section>
   );
 }
 
 export default function Room({ groupId }) {
   const socketRef = useRef(null);
+  const composerRef = useRef(null);
+  const retryMessage = useRef(null);
+  const focusComposer = useRef(false);
+
+  const [view, setView] = useState("Board");
+  const [revision, setRevision] = useState(0);
+  const [delivery, setDelivery] = useState("");
   const [connection, setConnection] = useState("Connecting…");
   const [joined, setJoined] = useState(false);
   const [messages, setMessages] = useState([]);
@@ -167,29 +210,60 @@ export default function Room({ groupId }) {
   const [error, setError] = useState("");
 
   useEffect(() => {
+    if (view === "Chat" && focusComposer.current) {
+      composerRef.current?.focus();
+      focusComposer.current = false;
+    }
+  }, [view]);
+
+  useEffect(() => {
     const socket = io({ autoConnect: false });
     socketRef.current = socket;
+
     let active = true;
+    let generation = 0;
+    let syncing = true;
+    let bufferedMessages = [];
+    let bufferedStrokes = [];
+    let latestMembers = null;
 
     socket.on("connect", async () => {
-      setConnection("Joining room…");
+      const attempt = ++generation;
+
+      syncing = true;
+      bufferedMessages = [];
+      bufferedStrokes = [];
+      latestMembers = null;
+
+      setJoined(false);
+      setConnection("Restoring shared room…");
       setError("");
 
       try {
         const snapshot = await socket
           .timeout(5000)
           .emitWithAck("room:join", { groupId });
-        if (!active || !socket.connected) return;
-        if (!snapshot?.ok)
-          throw new Error(snapshot?.message || "Room access denied.");
 
-        setMessages(snapshot.messages);
-        setStrokes(snapshot.strokes);
-        setMembers(snapshot.members);
+        if (!active || !socket.connected || attempt !== generation) {
+          return;
+        }
+
+        if (!snapshot?.ok) {
+          throw new Error(snapshot?.message || "Room access denied.");
+        }
+
+        setMessages(bufferedMessages.reduce(appendById, snapshot.messages));
+
+        setStrokes(bufferedStrokes.reduce(appendById, snapshot.strokes));
+
+        setMembers(latestMembers ?? snapshot.members);
+
+        syncing = false;
         setJoined(true);
         setConnection("Live");
       } catch (failure) {
-        if (!active) return;
+        if (!active || attempt !== generation) return;
+
         setJoined(false);
         setConnection("Unable to join");
         setError(failure.message);
@@ -198,21 +272,39 @@ export default function Room({ groupId }) {
 
     socket.on("connect_error", () => {
       setJoined(false);
-      setConnection("Room server unavailable");
+      setConnection("Unable to connect. Retrying…");
     });
 
     socket.on("disconnect", () => {
+      generation += 1;
       setJoined(false);
-      setConnection("Disconnected");
+
+      setConnection(socket.active ? "Reconnecting…" : "Disconnected");
     });
 
-    socket.on("chat:message", (item) =>
-      setMessages((items) => appendById(items, item)),
-    );
-    socket.on("board:stroke", (stroke) =>
-      setStrokes((items) => appendById(items, stroke)),
-    );
-    socket.on("room:presence", setMembers);
+    socket.on("chat:message", (item) => {
+      if (syncing) {
+        bufferedMessages.push(item);
+      } else {
+        setMessages((items) => appendById(items, item));
+      }
+    });
+
+    socket.on("board:stroke", (stroke) => {
+      if (syncing) {
+        bufferedStrokes.push(stroke);
+      } else {
+        setStrokes((items) => appendById(items, stroke));
+      }
+    });
+
+    socket.on("room:presence", (people) => {
+      if (syncing) {
+        latestMembers = people;
+      } else {
+        setMembers(people);
+      }
+    });
 
     socket.connect();
 
@@ -222,7 +314,7 @@ export default function Room({ groupId }) {
       socket.disconnect();
       socketRef.current = null;
     };
-  }, [groupId]);
+  }, [groupId, revision]);
 
   async function send(eventName, payload) {
     const socket = socketRef.current;
@@ -231,9 +323,10 @@ export default function Room({ groupId }) {
       throw new Error("Reconnect to the room before sending.");
     }
 
-    const response = await socket
-      .timeout(5000)
-      .emitWithAck(eventName, { groupId, ...payload });
+    const response = await socket.timeout(5000).emitWithAck(eventName, {
+      groupId,
+      ...payload,
+    });
 
     if (!response?.ok) {
       throw new Error(
@@ -246,18 +339,38 @@ export default function Room({ groupId }) {
 
   async function sendMessage(event) {
     event.preventDefault();
+
     const text = message.trim();
     if (!text || sending) return;
 
+    const pending =
+      retryMessage.current?.text === text
+        ? retryMessage.current
+        : {
+            id: crypto.randomUUID(),
+            text,
+          };
+
+    retryMessage.current = pending;
+
     setSending(true);
+    setDelivery("Sending message…");
     setError("");
 
     try {
-      const item = await send("chat:send", { id: crypto.randomUUID(), text });
+      const item = await send("chat:send", pending);
+
       setMessages((items) => appendById(items, item));
-      setMessage("");
+
+      retryMessage.current = null;
+
+      setMessage((draft) => (draft.trim() === text ? "" : draft));
+
+      setDelivery("Message delivered.");
     } catch (failure) {
-      setError(`Message could not be confirmed. ${failure.message}`);
+      setDelivery(
+        `Message unconfirmed. Submit the same draft to retry. ${failure.message}`,
+      );
     } finally {
       setSending(false);
     }
@@ -267,25 +380,52 @@ export default function Room({ groupId }) {
     setError("");
 
     try {
-      const item = await send("board:draw", { stroke });
+      const item = await send("board:draw", {
+        stroke,
+      });
+
       setStrokes((items) => appendById(items, item));
     } catch (failure) {
       setError(`Stroke could not be confirmed. ${failure.message}`);
     }
   }
 
+  function shareSteps() {
+    setView("Chat");
+    setMessage((draft) => draft || "Board step: ");
+
+    if (view === "Chat") {
+      composerRef.current?.focus();
+    } else {
+      focusComposer.current = true;
+    }
+  }
+
   return (
     <>
-      <div className="row spread">
-        <Link to={`/groups/${groupId}`}>← Leave room</Link>
-        <span className="badge" role="status">
+      <header className="row spread">
+        <div className="stack">
+          <Link to={`/groups/${groupId}`}>Back to group</Link>
+          <h1>Live study room</h1>
+        </div>
+
+        <span
+          className={`badge ${joined ? "room-live" : "room-waiting"}`}
+          role="status"
+        >
           {connection}
         </span>
-      </div>
-      <h1>Live study room</h1>
+      </header>
 
       {!joined && (
-        <button className="secondary" onClick={() => window.location.reload()}>
+        <button
+          type="button"
+          className="secondary"
+          onClick={() => {
+            setConnection("Connecting…");
+            setRevision((value) => value + 1);
+          }}
+        >
           Reconnect
         </button>
       )}
@@ -296,41 +436,95 @@ export default function Room({ groupId }) {
         </p>
       )}
 
-      <div className="room-layout">
-        <Whiteboard strokes={strokes} enabled={joined} onStroke={saveStroke} />
+      <div className="row room-controls" role="group" aria-label="Room views">
+        {["Board", "Chat", "People"].map((name) => (
+          <button
+            key={name}
+            type="button"
+            className="secondary"
+            aria-pressed={view === name}
+            onClick={() => setView(name)}
+          >
+            {name}
+            {name === "People" && joined ? ` (${members.length})` : ""}
+          </button>
+        ))}
+      </div>
 
-        <section className="card stack">
-          <h2>Room chat</h2>
-          <p className="muted">
-            {members.length
-              ? `Online · ${members.map((member) => member.name).join(", ")}`
-              : "No online members listed."}
-          </p>
+      <div className={`room-layout room-view-${view.toLowerCase()}`}>
+        <div className="room-board">
+          <Whiteboard
+            strokes={strokes}
+            enabled={joined}
+            onStroke={saveStroke}
+            onShareSteps={shareSteps}
+          />
+        </div>
 
-          <ul className="messages stack" role="log" aria-label="Room messages">
-            {messages.map((item) => (
-              <li key={item.id}>
-                <strong>{item.senderName}</strong>
-                <p>{item.text}</p>
-              </li>
-            ))}
-          </ul>
+        {view === "People" && (
+          <section className="card stack">
+            <h2>People in this room</h2>
 
-          <form className="stack" onSubmit={sendMessage}>
-            <label>
-              Message
-              <input
-                value={message}
-                maxLength={1000}
-                disabled={!joined || sending}
-                onChange={(event) => setMessage(event.target.value)}
-              />
-            </label>
-            <button disabled={!joined || sending || !message.trim()}>
-              {sending ? "Sending…" : "Send message"}
-            </button>
-          </form>
-        </section>
+            {!joined ? (
+              <p className="muted">Presence will update after reconnecting.</p>
+            ) : members.length ? (
+              <ul className="list">
+                {members.map((member) => (
+                  <li key={member.id}>{member.name}</li>
+                ))}
+              </ul>
+            ) : (
+              <p className="empty">No classmates are listed yet.</p>
+            )}
+          </section>
+        )}
+
+        {view === "Chat" && (
+          <section className="card stack room-chat">
+            <h2>Room chat</h2>
+
+            <p className="muted">
+              Share a board step in text so classmates can follow it here.
+            </p>
+
+            <ul
+              className="messages stack"
+              role="log"
+              aria-label="Room messages"
+              tabIndex={0}
+            >
+              {messages.map((item) => (
+                <li key={item.id}>
+                  <strong>{item.senderName}</strong>
+                  <p>{item.text}</p>
+                </li>
+              ))}
+            </ul>
+
+            {!messages.length && <p className="empty">No messages yet.</p>}
+
+            <form className="stack" onSubmit={sendMessage}>
+              <label>
+                Message
+                <textarea
+                  ref={composerRef}
+                  rows={2}
+                  value={message}
+                  maxLength={1000}
+                  onChange={(event) => setMessage(event.target.value)}
+                />
+              </label>
+
+              <button disabled={!joined || sending || !message.trim()}>
+                {sending ? "Sending…" : "Send message"}
+              </button>
+            </form>
+
+            <p className="muted" role="status">
+              {delivery}
+            </p>
+          </section>
+        )}
       </div>
     </>
   );
